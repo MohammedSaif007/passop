@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureVault - Local Password Manager</title>
+    
+    <!-- Using a very minimal, non-blocking style block to set the background -->
+    <style>
+        /* This ensures the body is dark and centered even if all utility classes fail */
+        :root {
+            --primary: #6366f1;
+            --bg-dark: #1f2937;
+            --card-dark: #374151;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark); /* Guaranteed Dark Background */
+            font-family: 'Inter', sans-serif;
+            color: white; /* Ensure text is visible */
+        }
+        
+        /* Fallback for the Login/App screens */
+        #loginScreen, #appScreen, #modalContent {
+            background-color: var(--card-dark);
+        }
+    </style>
+
+    <!-- 
+    NOTE: The external CDN script is required for all other utilities (flex, rounded, etc.).
+    If your security settings still block this, the layout may be stacked but the colors 
+    will at least be dark/visible, allowing the app to function. 
+    If this fails, you MUST fix your VS Code Live Server or browser settings.
+    -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+</head>
+<body class="min-h-screen p-4 sm:p-8 flex items-center justify-center">
+
+    <!-- Login Screen (Visible by default) -->
+    <div id="loginScreen" class="w-full max-w-md p-8 rounded-xl shadow-2xl transition-all-200">
+        <h1 class="text-3xl font-extrabold text-center mb-6">SecureVault 🔑</h1>
+        <p class="text-center text-sm text-red-400 mb-4">
+            ⚠️ This is a local-run app for demonstration. Data is stored in your browser's Local Storage.
+        </p>
+        <form id="loginForm" class="space-y-4">
+            <div>
+                <label for="masterKey" class="block text-sm font-medium text-gray-300 mb-1">Master Key</label>
+                <input type="password" id="masterKey" required placeholder="Enter a strong Master Key"
+                       class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition-all-200 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
+                Unlock Vault
+            </button>
+            <p id="loginMessage" class="text-center text-sm text-red-400 mt-2 hidden">Invalid Master Key. Please try again.</p>
+        </form>
+    </div>
+
+    <!-- Main App Screen (Hidden by default) -->
+    <div id="appScreen" class="hidden w-full max-w-4xl p-6 sm:p-8 rounded-xl shadow-2xl transition-all-200">
+        <header class="flex flex-col sm:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
+            <h1 class="text-3xl font-extrabold text-white mb-4 sm:mb-0">SecureVault</h1>
+            <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <input type="text" id="searchInput" placeholder="Search accounts..."
+                       class="p-2 border border-gray-600 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-64">
+                <button id="addNewBtn" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-all-200 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
+                    + Add New Credential
+                </button>
+            </div>
+        </header>
+
+        <!-- Password List -->
+        <div id="passwordList" class="space-y-4 max-h-96 overflow-y-auto">
+            <!-- Credentials will be rendered here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="text-center p-10 hidden">
+            <svg class="mx-auto h-12 w-12 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2v10a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2h6zm-2 0V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v2m6 0h-6m6 0a2 2 0 00-2-2h-2a2 2 0 00-2 2h6z" />
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-white">No Credentials Saved</h3>
+            <p class="mt-1 text-sm text-gray-400">Get started by adding your first secure login.</p>
+        </div>
+
+        <footer class="mt-6 pt-4 border-t border-gray-700 flex justify-end">
+            <button id="logoutBtn" class="text-sm text-gray-400 hover:text-red-500 transition-colors">Lock Vault</button>
+        </footer>
+    </div>
+
+    <!-- Modal for Add/Edit Credential -->
+    <div id="credentialModal" class="fixed inset-0 bg-black bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="w-full max-w-lg p-6 rounded-xl shadow-3xl transition-all-200 scale-100 opacity-100" id="modalContent">
+            <h2 id="modalTitle" class="text-2xl font-bold text-white mb-4">Add New Credential</h2>
+            <form id="credentialForm" class="space-y-4">
+                <input type="hidden" id="credentialId">
+                <div>
+                    <label for="siteName" class="block text-sm font-medium text-gray-300 mb-1">Site/App Name</label>
+                    <input type="text" id="siteName" required placeholder="e.g., Google, Bank of America"
+                           class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Username/Email</label>
+                    <input type="text" id="username" required placeholder="Your email or username"
+                           class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                    <div class="relative">
+                        <input type="text" id="password" required placeholder="Secure Password"
+                               class="password-input w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
+                        <button type="button" id="generateBtn" class="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 text-xs font-medium text-white bg-indigo-500 rounded-md hover:bg-indigo-600">
+                            Generate
+                        </button>
+                    </div>
+                    <!-- Password Strength Meter -->
+                    <div id="strengthContainer" class="mt-2 text-sm">
+                        <div id="strengthBar" class="h-1 rounded-full transition-all duration-300" style="width: 0%;"></div>
+                        <span id="strengthText" class="text-gray-400"></span>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" id="cancelBtn" class="py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all-200">
+                        Cancel
+                    </button>
+                    <button type="submit" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-all-200">
+                        Save Credential
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Custom Message Box -->
+    <div id="messageBox" class="fixed bottom-5 right-5 p-4 rounded-lg shadow-xl text-white hidden z-50 transition-opacity duration-300"></div>
+
+
+    <script>
+        // --- CONSTANTS AND STATE ---
+        const MASTER_KEY_STORAGE_KEY = 'secureVaultMasterKey';
+        const CREDENTIALS_STORAGE_KEY = 'secureVaultCredentials';
+        let currentMasterKey = '';
+        let credentials = [];
+        let isEditing = false;
+        let currentEditId = null;
+
+        // --- DOM Elements ---
+        const loginScreen = document.getElementById('loginScreen');
+        const loginForm = document.getElementById('loginForm');
+        const masterKeyInput = document.getElementById('masterKey');
+        const loginMessage = document.getElementById('loginMessage');
+
+        const appScreen = document.getElementById('appScreen');
+        const passwordList = document.getElementById('passwordList');
+        const emptyState = document.getElementById('emptyState');
+        const searchInput = document.getElementById('searchInput');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const addNewBtn = document.getElementById('addNewBtn');
+        const messageBox = document.getElementById('messageBox'); // Added Message Box element
+
+        const credentialModal = document.getElementById('credentialModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const credentialForm = document.getElementById('credentialForm');
+        const credentialIdInput = document.getElementById('credentialId');
+        const siteNameInput = document.getElementById('siteName');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const generateBtn = document.getElementById('generateBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+
+        // New Strength Meter Elements
+        const strengthBar = document.getElementById('strengthBar');
+        const strengthText = document.getElementById('strengthText');
+
+
+        // --- UTILITY FUNCTIONS (Messaging, Encryption/Decryption) ---
+
+        /**
+         * Custom function to display a temporary notification message, replacing alert().
+         */
+        const showMessage = (text, type = 'success') => {
+            messageBox.textContent = text;
+            messageBox.className = 'fixed bottom-5 right-5 p-4 rounded-lg shadow-xl text-white z-50 transition-opacity duration-300';
+            
+            if (type === 'success') {
+                messageBox.classList.add('bg-green-600');
+            } else if (type === 'error') {
+                messageBox.classList.add('bg-red-600');
+            } else if (type === 'info') {
+                messageBox.classList.add('bg-indigo-600');
+            }
+            
+            messageBox.classList.remove('hidden');
+
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+                messageBox.classList.remove('bg-green-600', 'bg-red-600', 'bg-indigo-600');
+            }, 3000);
+        };
+
+
+        /**
+         * Simple Base64 encoding/decoding for obfuscation.
+         * NOTE: This is NOT secure encryption. It's for data obfuscation only.
+         * A real password manager must use strong cryptography.
+         */
+        const obfuscate = (text) => btoa(text);
+        const deobfuscate = (base64) => {
+            try {
+                return atob(base64);
+            } catch (e) {
+                console.error("Deobfuscation error:", e);
+                return '';
+            }
+        };
+
+        const encryptData = (data, key) => {
+            // In a real app, this would be key-based AES encryption.
+            // Here, we just obfuscate the JSON string.
+            const dataString = JSON.stringify(data);
+            return obfuscate(dataString);
+        };
+
+        const decryptData = (encryptedData, key) => {
+            // In a real app, this would be key-based AES decryption.
+            const dataString = deobfuscate(encryptedData);
+            if (!dataString) return null;
+            try {
+                return JSON.parse(dataString);
+            } catch (e) {
+                console.error("JSON parsing error on decryption:", e);
+                return null;
+            }
+        };
+
+        // --- PASSWORD GENERATION ---
+        const generatePassword = (length = 16) => {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
+            let password = '';
+            for (let i = 0; i < length; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return password;
+        };
+
+        // --- PASSWORD STRENGTH LOGIC ---
+        const checkPasswordStrength = (password) => {
+            let score = 0;
+            if (password.length >= 8) score += 10;
+            if (password.length >= 12) score += 10;
+            if (password.length >= 16) score += 10;
+            
+            // Checks for different character types
+            const checks = {
+                hasLowercase: /[a-z]/.test(password),
+                hasUppercase: /[A-Z]/.test(password),
+                hasNumbers: /[0-9]/.test(password),
+                hasSymbols: /[^A-Za-z0-9]/.test(password)
+            };
+
+            const satisfiedChecks = Object.values(checks).filter(Boolean).length;
+            score += satisfiedChecks * 15; // Max 60 points from type checks
+
+            // Cap the score at 100
+            score = Math.min(score, 100);
+
+            let strength = 'Weak';
+            let color = 'bg-red-500';
+            
+            if (score > 80) {
+                strength = 'Strong';
+                color = 'bg-green-500';
+            } else if (score > 60) {
+                strength = 'Good';
+                color = 'bg-yellow-500';
+            } else if (score > 40) {
+                strength = 'Fair';
+                color = 'bg-orange-500';
+            }
+            
+            return { score, strength, color };
+        };
+
+        const updateStrengthMeter = () => {
+            const password = passwordInput.value;
+            const { score, strength, color } = checkPasswordStrength(password);
+            
+            if (password.length === 0) {
+                strengthBar.style.width = '0%';
+                strengthBar.className = 'h-1 rounded-full transition-all duration-300';
+                strengthText.textContent = '';
+                return;
+            }
+
+            strengthBar.style.width = `${score}%`;
+            strengthBar.className = `h-1 rounded-full transition-all duration-300 ${color}`;
+            strengthText.textContent = `Strength: ${strength}`;
+            strengthText.style.color = color;
+        };
+
+        // --- DATA MANAGEMENT ---
+
+        const loadCredentials = () => {
+            const encryptedData = localStorage.getItem(CREDENTIALS_STORAGE_KEY);
+            if (encryptedData) {
+                const decrypted = decryptData(encryptedData, currentMasterKey);
+                
+                // --- ADDED VALIDATION CHECK ---
+                if (Array.isArray(decrypted)) {
+                    credentials = decrypted;
+                    return true;
+                } else if (decrypted !== null) {
+                    console.error("Stored credentials found but format is invalid. Clearing corrupted data.");
+                    localStorage.removeItem(CREDENTIALS_STORAGE_KEY); // Clear corrupt data
+                    showMessage("Vault data was corrupted. Corrupted data cleared. Please add new credentials.", 'error');
+                }
+                // -----------------------------
+            }
+            credentials = [];
+            return true; // No data found or decryption failed, but proceed with empty list
+        };
+
+        const saveCredentials = () => {
+            const encryptedData = encryptData(credentials, currentMasterKey);
+            localStorage.setItem(CREDENTIALS_STORAGE_KEY, encryptedData);
+            renderCredentials();
+        };
+
+        // --- UI RENDERING ---
+
+        const copyToClipboard = (text, element) => {
+            const originalText = element.textContent;
+
+            // Function to handle the success state visually
+            const handleSuccess = () => {
+                element.textContent = 'Copied!';
+                
+                // Temporarily change button appearance
+                element.classList.remove('bg-green-500', 'hover:bg-green-600');
+                element.classList.add('bg-indigo-500');
+
+                setTimeout(() => {
+                    element.textContent = originalText;
+                    // Restore button appearance
+                    element.classList.remove('bg-indigo-500');
+                    element.classList.add('bg-green-500', 'hover:bg-green-600');
+                }, 1500);
+            };
+
+            // Fallback function using document.execCommand('copy')
+            function tryExecCommand(textToCopy) {
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                textarea.style.position = 'fixed'; // Prevents scrolling to bottom
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        handleSuccess();
+                    } else {
+                        throw new Error("execCommand failed.");
+                    }
+                } catch (err) {
+                    console.error('Could not copy text using execCommand:', err);
+                    showMessage('Copy failed. Manual copying required.', 'error');
+                } finally {
+                    document.body.removeChild(textarea);
+                }
+            }
+            
+            // 1. Try modern API (navigator.clipboard)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    handleSuccess();
+                }).catch(err => {
+                    console.error('Modern copy API failed. Trying fallback:', err);
+                    // Fallback execution after failure
+                    tryExecCommand(text);
+                });
+            } else {
+                // 2. If modern API is not available at all, jump straight to fallback
+                tryExecCommand(text);
+            }
+        };
+        
+        const copyPassword = (id, button) => {
+            const credential = credentials.find(c => c.id === id);
+            
+            if (!credential || !credential.password) {
+                showMessage("Error: Password data is incomplete or missing.", 'error');
+                return;
+            }
+            
+            const decryptedPass = deobfuscate(credential.password);
+            
+            if (!decryptedPass) {
+                showMessage("Error: Could not retrieve or decrypt password.", 'error');
+                return;
+            }
+            
+            // Use the existing copyToClipboard utility
+            copyToClipboard(decryptedPass, button);
+        };
+
+
+        const createCredentialElement = (credential) => {
+            const item = document.createElement('div');
+            item.className = 'credential-item flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-gray-700 hover:bg-gray-600 rounded-xl shadow-lg transition-all-200';
+            item.dataset.id = credential.id;
+
+            item.innerHTML = `
+                <div class="flex flex-col mb-3 sm:mb-0 w-full sm:w-3/5">
+                    <h3 class="text-lg font-semibold text-white truncate">${credential.siteName}</h3>
+                    <p class="text-sm text-gray-300 truncate">User: ${credential.username}</p>
+                </div>
+                <div class="flex flex-wrap gap-2 w-full sm:w-2/5 sm:justify-end">
+                    <button data-action="copy" class="action-btn text-sm py-1 px-3 bg-green-500 hover:bg-green-600 rounded-md text-white font-medium transition-colors">Copy</button>
+                    <button data-action="edit" class="action-btn text-sm py-1 px-3 bg-yellow-500 hover:bg-yellow-600 rounded-md text-white font-medium transition-colors">Edit</button>
+                    <button data-action="delete" class="action-btn text-sm py-1 px-3 bg-red-500 hover:bg-red-600 rounded-md text-white font-medium transition-colors">Delete</button>
+                </div>
+            `;
+
+            item.querySelectorAll('.action-btn').forEach(button => {
+                const action = button.dataset.action;
+                button.onclick = (e) => {
+                    e.stopPropagation();
+                    if (action === 'copy') {
+                        copyPassword(credential.id, button);
+                    } else if (action === 'edit') {
+                        openModal(true, credential.id);
+                    } else if (action === 'delete') {
+                        deleteCredential(credential.id);
+                    }
+                };
+            });
+
+            return item;
+        };
+
+        const renderCredentials = (filter = '') => {
+            passwordList.innerHTML = '';
+            const lowerFilter = filter.toLowerCase();
+
+            const filteredCredentials = credentials
+                .filter(c => c.siteName.toLowerCase().includes(lowerFilter) || c.username.toLowerCase().includes(lowerFilter))
+                .sort((a, b) => a.siteName.localeCompare(b.siteName));
+
+            if (filteredCredentials.length === 0 && credentials.length > 0) {
+                // Showing search results empty state
+                passwordList.innerHTML = `<p class="text-center text-gray-400 p-10">No results found for "${filter}".</p>`;
+                emptyState.classList.add('hidden');
+            } else if (credentials.length === 0) {
+                // Showing initial empty state
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                filteredCredentials.forEach(c => {
+                    passwordList.appendChild(createCredentialElement(c));
+                });
+            }
+        };
+
+        // --- MODAL/FORM LOGIC ---
+
+        const openModal = (edit = false, id = null) => {
+            isEditing = edit;
+            currentEditId = id;
+            credentialForm.reset();
+            passwordInput.type = 'text'; // Keep as text for easy input/editing
+
+            if (edit && id !== null) {
+                const credential = credentials.find(c => c.id === id);
+                if (credential) {
+                    modalTitle.textContent = 'Edit Credential';
+                    siteNameInput.value = credential.siteName;
+                    usernameInput.value = credential.username;
+                    // Deobfuscate password for editing
+                    passwordInput.value = deobfuscate(credential.password);
+                    credentialIdInput.value = id;
+                }
+            } else {
+                modalTitle.textContent = 'Add New Credential';
+            }
+            
+            // Initialize or update strength meter on modal open
+            updateStrengthMeter();
+
+            credentialModal.classList.remove('hidden');
+            credentialModal.classList.add('flex');
+            siteNameInput.focus();
+        };
+
+        const closeModal = () => {
+            credentialModal.classList.remove('flex');
+            credentialModal.classList.add('hidden');
+        };
+
+        // --- CRUD OPERATIONS ---
+
+        const deleteCredential = (id) => {
+            // NOTE: Removed confirm() to comply with environment constraints.
+            // Data is deleted immediately.
+            credentials = credentials.filter(c => c.id !== id);
+            saveCredentials();
+            showMessage('Credential deleted successfully!', 'error'); 
+        };
+
+        credentialForm.onsubmit = (e) => {
+            e.preventDefault();
+
+            const siteName = siteNameInput.value.trim();
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+
+            if (!siteName || !username || !password) return;
+
+            // Obfuscate the password before saving
+            const encryptedPassword = obfuscate(password);
+
+            if (isEditing) {
+                // Update
+                const index = credentials.findIndex(c => c.id === currentEditId);
+                if (index !== -1) {
+                    credentials[index] = {
+                        ...credentials[index],
+                        siteName,
+                        username,
+                        password: encryptedPassword
+                    };
+                    showMessage('Credential updated!', 'success');
+                }
+            } else {
+                // Create
+                const newCredential = {
+                    id: Date.now().toString(),
+                    siteName,
+                    username,
+                    password: encryptedPassword
+                };
+                credentials.push(newCredential);
+                showMessage('Credential added successfully!', 'success');
+            }
+
+            saveCredentials();
+            closeModal();
+        };
+
+        // --- MASTER KEY / AUTHENTICATION LOGIC ---
+
+        const simpleHash = (s) => s.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0);
+
+        const checkMasterKey = (key) => {
+            const storedKeyHash = localStorage.getItem(MASTER_KEY_STORAGE_KEY);
+            const inputHash = simpleHash(key).toString();
+
+            if (!storedKeyHash) {
+                // First-time setup: Store the hash explicitly as a string
+                localStorage.setItem(MASTER_KEY_STORAGE_KEY, inputHash);
+                return true;
+            }
+
+            // --- DEBUGGING LOG ADDED HERE ---
+            if (inputHash !== storedKeyHash) {
+                console.error(`Login failed. Stored hash: ${storedKeyHash} | Input hash: ${inputHash}`);
+            }
+            // --------------------------------
+
+            return inputHash === storedKeyHash;
+        };
+
+        const authenticate = () => {
+            // Hide everything initially
+            loginScreen.classList.add('hidden');
+            appScreen.classList.add('hidden');
+
+            if (!currentMasterKey) {
+                // Show login screen if not authenticated
+                loginScreen.classList.remove('hidden');
+                masterKeyInput.focus();
+                return;
+            }
+
+            // Authenticated: Load data and show app
+            if (loadCredentials()) {
+                loginScreen.classList.add('hidden');
+                appScreen.classList.remove('hidden');
+                renderCredentials();
+            } else {
+                // Should only happen if the key is correct but data is corrupt.
+                // Replaced alert() with showMessage()
+                showMessage("Error decrypting data. Please log in again.", 'error');
+                currentMasterKey = '';
+                authenticate();
+            }
+        };
+
+        // --- EVENT LISTENERS ---
+
+        loginForm.onsubmit = (e) => {
+            e.preventDefault();
+            const key = masterKeyInput.value.trim();
+
+            if (checkMasterKey(key)) {
+                currentMasterKey = key; // Keep key in memory for decryption/encryption
+                loginMessage.classList.add('hidden');
+                masterKeyInput.value = '';
+                authenticate();
+            } else {
+                loginMessage.classList.remove('hidden');
+                // Clear and re-focus on failure
+                masterKeyInput.value = '';
+                masterKeyInput.focus();
+            }
+        };
+
+        logoutBtn.onclick = () => {
+            currentMasterKey = ''; // Clear key from memory
+            masterKeyInput.value = '';
+            authenticate();
+        };
+
+        addNewBtn.onclick = () => openModal(false);
+        cancelBtn.onclick = closeModal;
+
+        generateBtn.onclick = () => {
+            passwordInput.value = generatePassword();
+            updateStrengthMeter(); // Update meter immediately after generation
+        };
+
+        // New: Update strength meter as user types
+        passwordInput.oninput = updateStrengthMeter;
+
+
+        searchInput.oninput = (e) => {
+            renderCredentials(e.target.value);
+        };
+
+        // Close modal when clicking outside (on the overlay)
+        credentialModal.addEventListener('click', (e) => {
+            if (e.target.id === 'credentialModal') {
+                closeModal();
+            }
+        });
+
+        // Initialize the app state
+        authenticate();
+    </script>
+</body>
+</html>
