@@ -4,16 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SecureVault - Local Password Manager</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Using a very minimal, non-blocking style block to set the background -->
+    <!-- Configure Tailwind for Dark Mode utility classes -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // Updated to match the specific blue/slate tones in the image
+                        'primary': '#6366f1', 
+                        'bg-dark': '#1f2937', // New dark blue/slate background
+                        'card-dark': '#374151', // New softer card background
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS (Embedded from css/style.css) -->
     <style>
-        /* This ensures the body is dark and centered even if all utility classes fail */
+        /* Variables for easy theme switching (Updated to match Tailwind config) */
         :root {
             --primary: #6366f1;
             --bg-dark: #1f2937;
             --card-dark: #374151;
         }
 
+        /* Base Styles: Ensures dark background and layout */
         html, body {
             height: 100%;
             margin: 0;
@@ -22,111 +42,188 @@
             font-family: 'Inter', sans-serif;
             color: white; /* Ensure text is visible */
         }
-        
-        /* Fallback for the Login/App screens */
-        #loginScreen, #appScreen, #modalContent {
+
+        /* FIX: Hide browser's native password reveal button to prevent double icons */
+        input::-ms-reveal,
+        input::-webkit-reveal {
+            display: none;
+        }
+
+        /* Card Background Fallback: Explicitly use the dark card variable */
+        #loginScreen, #appScreen, #modalContent,
+        .credential-item { 
             background-color: var(--card-dark);
         }
+        
+        /* Loading Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #ffffff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+
+        /* Scrollbar Styling for Password List */
+        #passwordList::-webkit-scrollbar {
+            width: 8px;
+        }
+        #passwordList::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+        #passwordList::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        /* Input password type override for easy viewing in dev mode */
+        .password-input:focus {
+            -webkit-text-security: none !important;
+            -moz-text-security: none !important;
+            text-security: none !important;
+        }
+
+        .action-btn {
+            cursor: pointer;
+        }
     </style>
-
-    <!-- 
-    NOTE: The external CDN script is required for all other utilities (flex, rounded, etc.).
-    If your security settings still block this, the layout may be stacked but the colors 
-    will at least be dark/visible, allowing the app to function. 
-    If this fails, you MUST fix your VS Code Live Server or browser settings.
-    -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
 </head>
-<body class="min-h-screen p-4 sm:p-8 flex items-center justify-center">
+<body class="bg-bg-dark text-white font-sans h-full min-h-screen flex flex-col antialiased">
 
-    <!-- Login Screen (Visible by default) -->
-    <div id="loginScreen" class="w-full max-w-md p-8 rounded-xl shadow-2xl transition-all-200">
-        <h1 class="text-3xl font-extrabold text-center mb-6">SecureVault 🔑</h1>
-        <p class="text-center text-sm text-red-400 mb-4">
-            ⚠️ This is a local-run app for demonstration. Data is stored in your browser's Local Storage.
-        </p>
-        <form id="loginForm" class="space-y-4">
-            <div>
-                <label for="masterKey" class="block text-sm font-medium text-gray-300 mb-1">Master Key</label>
-                <input type="password" id="masterKey" required placeholder="Enter a strong Master Key"
-                       class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
-            </div>
-            <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition-all-200 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                Unlock Vault
+    <!-- 1. Authentication Screen (Hidden by default) -->
+    <div id="loginScreen" class="fixed inset-0 bg-bg-dark flex items-center justify-center p-4 z-50">
+        <div class="w-full max-w-sm p-8 bg-card-dark rounded-xl shadow-2xl space-y-6">
+            <h1 class="text-3xl font-bold text-center text-white">SecureVault</h1>
+            <p class="text-center text-gray-400">Unlock your local vault with your Master Key.</p>
+            
+            <form id="loginForm" class="space-y-4">
+                <div class="relative">
+                    <input type="password" id="masterKey" placeholder="Enter Master Key" required
+                           class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50 text-white placeholder-gray-400 pr-10">
+                    <button type="button" id="toggleMasterKeyBtn" 
+                            class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-white"
+                            aria-label="Toggle master key visibility">
+                        <svg id="masterKeyEyeIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Default: Hidden state SVG (Closed Slit) -->
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12h20M12 12v.01M6 12a6 6 0 0 1 12 0"/>
+                        </svg>
+                    </button>
+                </div>
+                <button type="submit" 
+                        class="w-full py-3 bg-primary hover:bg-indigo-600 text-white font-semibold rounded-lg transition-colors shadow-lg">
+                    Unlock Vault
+                </button>
+                <p id="loginMessage" class="text-red-400 text-center hidden">Incorrect Master Key. Try again.</p>
+            </form>
+            
+            <button id="resetVaultBtn" class="w-full text-sm text-gray-400 hover:text-red-400 transition-colors mt-4">
+                Forgot Key? (Reset Vault)
             </button>
-            <p id="loginMessage" class="text-center text-sm text-red-400 mt-2 hidden">Invalid Master Key. Please try again.</p>
-        </form>
+        </div>
     </div>
 
-    <!-- Main App Screen (Hidden by default) -->
-    <div id="appScreen" class="hidden w-full max-w-4xl p-6 sm:p-8 rounded-xl shadow-2xl transition-all-200">
-        <header class="flex flex-col sm:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl font-extrabold text-white mb-4 sm:mb-0">SecureVault</h1>
-            <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <input type="text" id="searchInput" placeholder="Search accounts..."
-                       class="p-2 border border-gray-600 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-64">
-                <button id="addNewBtn" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-all-200 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    + Add New Credential
-                </button>
+    <!-- 2. Main Application Screen -->
+    <div id="appScreen" class="flex-grow flex flex-col hidden">
+        
+        <!-- Header / Controls -->
+        <header class="bg-card-dark shadow-md p-4 sm:p-6 sticky top-0 z-40">
+            <div class="max-w-4xl mx-auto flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
+                <h1 class="text-2xl font-bold text-white">Your Credentials</h1>
+                
+                <div class="flex space-x-3 w-full sm:w-auto">
+                    <input type="search" id="searchInput" placeholder="Search site or user..."
+                           class="flex-grow px-3 py-2 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-primary focus:border-primary">
+                    <button id="addNewBtn" 
+                            class="flex-shrink-0 px-4 py-2 bg-primary hover:bg-indigo-600 text-white font-medium rounded-lg transition-colors shadow-md">
+                        + Add New
+                    </button>
+                </div>
             </div>
         </header>
 
-        <!-- Password List -->
-        <div id="passwordList" class="space-y-4 max-h-96 overflow-y-auto">
-            <!-- Credentials will be rendered here -->
-        </div>
+        <!-- Main Content Area -->
+        <main class="flex-grow p-4 sm:p-6 overflow-y-auto">
+            <div class="max-w-4xl mx-auto">
+                <div id="emptyState" class="text-center p-10 bg-card-dark rounded-xl shadow-lg mt-8 hidden">
+                    <svg class="w-12 h-12 mx-auto text-indigo-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2v5a2 2 0 01-2 2h-4a2 2 0 01-2-2v-5a2 2 0 012-2h4z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14H5c-1.104 0-2-.896-2-2V7c0-1.104.896-2 2-2h12v7"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18V9"></path></svg>
+                    <h2 class="text-xl font-semibold text-white">Your Vault is Empty</h2>
+                    <p class="text-gray-400">Click "Add New" to save your first credential securely.</p>
+                </div>
 
-        <!-- Empty State -->
-        <div id="emptyState" class="text-center p-10 hidden">
-            <svg class="mx-auto h-12 w-12 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2v10a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2h6zm-2 0V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v2m6 0h-6m6 0a2 2 0 00-2-2h-2a2 2 0 00-2 2h6z" />
-            </svg>
-            <h3 class="mt-2 text-sm font-medium text-white">No Credentials Saved</h3>
-            <p class="mt-1 text-sm text-gray-400">Get started by adding your first secure login.</p>
-        </div>
+                <!-- Password List -->
+                <div id="passwordList" class="space-y-4 mt-4">
+                    <!-- Credentials will be rendered here -->
+                </div>
+            </div>
+        </main>
 
-        <footer class="mt-6 pt-4 border-t border-gray-700 flex justify-end">
-            <button id="logoutBtn" class="text-sm text-gray-400 hover:text-red-500 transition-colors">Lock Vault</button>
+        <!-- Footer / Settings -->
+        <footer class="bg-gray-800 p-4 shadow-inner sticky bottom-0 z-40">
+            <div class="max-w-4xl mx-auto flex justify-between items-center text-sm text-gray-400">
+                <span>SecureVault v1.0</span> 
+                <div class="space-x-4">
+                    <button id="changeKeyBtn" class="text-indigo-400 hover:text-indigo-300 transition-colors">Settings</button>
+                    <button id="logoutBtn" class="text-red-400 hover:text-red-300 transition-colors">Lock Vault</button>
+                </div>
+            </div>
         </footer>
     </div>
 
-    <!-- Modal for Add/Edit Credential -->
+    <!-- 3. Credential Modal (Add/Edit Form) -->
     <div id="credentialModal" class="fixed inset-0 bg-black bg-opacity-75 hidden items-center justify-center p-4 z-50">
-        <div class="w-full max-w-lg p-6 rounded-xl shadow-3xl transition-all-200 scale-100 opacity-100" id="modalContent">
+        <div id="modalContent" class="w-full max-w-lg bg-card-dark rounded-xl shadow-2xl p-6 space-y-4">
             <h2 id="modalTitle" class="text-2xl font-bold text-white mb-4">Add New Credential</h2>
+            
             <form id="credentialForm" class="space-y-4">
                 <input type="hidden" id="credentialId">
-                <div>
-                    <label for="siteName" class="block text-sm font-medium text-gray-300 mb-1">Site/App Name</label>
-                    <input type="text" id="siteName" required placeholder="e.g., Google, Bank of America"
-                           class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div>
-                    <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Username/Email</label>
-                    <input type="text" id="username" required placeholder="Your email or username"
-                           class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div>
-                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
-                    <div class="relative">
-                        <input type="text" id="password" required placeholder="Secure Password"
-                               class="password-input w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-indigo-500 focus:border-indigo-500">
-                        <button type="button" id="generateBtn" class="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 text-xs font-medium text-white bg-indigo-500 rounded-md hover:bg-indigo-600">
-                            Generate
+                <input type="text" id="siteName" placeholder="Website / Service Name (e.g., Amazon)" required
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                <input type="url" id="urlInput" placeholder="Website URL (e.g., amazon.com)"
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                <input type="text" id="username" placeholder="Username or Email" required
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                
+                <!-- Password Field with Generator and Visibility Toggle -->
+                <div class="flex space-x-2">
+                    <div class="relative w-full">
+                        <input type="password" id="password" placeholder="Password" required
+                               class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white password-input placeholder-gray-400 pr-10">
+                        <button type="button" id="togglePasswordBtn" 
+                                class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-white"
+                                aria-label="Toggle password visibility">
+                            <svg id="eyeIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Default: Hidden state SVG (Closed Slit) -->
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12h20M12 12v.01M6 12a6 6 0 0 1 12 0"/>
+                            </svg>
                         </button>
                     </div>
-                    <!-- Password Strength Meter -->
-                    <div id="strengthContainer" class="mt-2 text-sm">
-                        <div id="strengthBar" class="h-1 rounded-full transition-all duration-300" style="width: 0%;"></div>
-                        <span id="strengthText" class="text-gray-400"></span>
-                    </div>
+                    <button type="button" id="generateBtn" 
+                            class="flex-shrink-0 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-lg transition-colors">
+                        Generate
+                    </button>
                 </div>
-                <div class="flex justify-end gap-3 pt-4">
-                    <button type="button" id="cancelBtn" class="py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all-200">
+                
+                <!-- Password Strength Meter -->
+                <div id="strengthContainer" class="pt-1">
+                    <div class="h-1 bg-gray-600 rounded-full mb-1">
+                        <div id="strengthBar" class="h-full rounded-full transition-all duration-300 w-0"></div>
+                    </div>
+                    <p id="strengthText" class="text-xs font-medium"></p>
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="cancelBtn" 
+                            class="px-4 py-2 text-gray-400 hover:text-white rounded-lg transition-colors">
                         Cancel
                     </button>
-                    <button type="submit" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-all-200">
+                    <button type="submit" 
+                            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors">
                         Save Credential
                     </button>
                 </div>
@@ -134,10 +231,58 @@
         </div>
     </div>
     
-    <!-- Custom Message Box -->
-    <div id="messageBox" class="fixed bottom-5 right-5 p-4 rounded-lg shadow-xl text-white hidden z-50 transition-opacity duration-300"></div>
+    <!-- 4. Change Master Key Modal -->
+    <div id="changeKeyModal" class="fixed inset-0 bg-black bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="w-full max-w-md bg-card-dark rounded-xl shadow-2xl p-6 space-y-4">
+            <h2 class="text-2xl font-bold text-white mb-4">Change Master Key</h2>
+            <form id="changeKeyForm" class="space-y-4">
+                <p class="text-sm text-yellow-400">You must remember this new key. There is no recovery.</p>
+                <input type="password" id="currentMasterKey" placeholder="Current Master Key" required
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                <input type="password" id="newMasterKey" placeholder="New Master Key" required
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                <input type="password" id="confirmNewMasterKey" placeholder="Confirm New Master Key" required
+                       class="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-primary text-white placeholder-gray-400">
+                
+                <p id="changeKeyMessage" class="text-red-400 text-center hidden"></p>
 
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="cancelChangeKeyBtn" 
+                            class="px-4 py-2 text-gray-400 hover:text-white rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-primary hover:bg-indigo-600 text-white font-semibold rounded-lg transition-colors">
+                        Update Key
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 5. Reset Vault Confirmation Modal -->
+    <div id="resetVaultModal" class="fixed inset-0 bg-black bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="w-full max-w-sm bg-red-800 rounded-xl shadow-2xl p-6 space-y-4 border-2 border-red-600">
+            <h2 class="text-xl font-bold text-white">⚠️ Erase All Data?</h2>
+            <p class="text-sm text-red-100">This action is irreversible. All stored credentials and your Master Key will be permanently deleted from your browser's local storage.</p>
+            <p class="text-sm text-red-100 font-semibold">Only proceed if you have forgotten your key.</p>
+            <div class="flex justify-end space-x-3 pt-2">
+                <button type="button" id="cancelResetBtn" 
+                        class="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
+                    Cancel
+                </button>
+                <button type="button" id="confirmResetBtn" 
+                        class="px-4 py-2 bg-white text-red-800 font-semibold rounded-lg transition-colors hover:bg-gray-200">
+                    Yes, Erase Vault
+                </button>
+            </div>
+        </div>
+    </div>
 
+    <!-- 6. Message Box (Non-blocking alerts) -->
+    <div id="messageBox" class="hidden"></div>
+    
+    <!-- JavaScript Logic (Embedded from js/app.js) -->
     <script>
         // --- CONSTANTS AND STATE ---
         const MASTER_KEY_STORAGE_KEY = 'secureVaultMasterKey';
@@ -159,21 +304,46 @@
         const searchInput = document.getElementById('searchInput');
         const logoutBtn = document.getElementById('logoutBtn');
         const addNewBtn = document.getElementById('addNewBtn');
-        const messageBox = document.getElementById('messageBox'); // Added Message Box element
+        const messageBox = document.getElementById('messageBox');
 
         const credentialModal = document.getElementById('credentialModal');
         const modalTitle = document.getElementById('modalTitle');
         const credentialForm = document.getElementById('credentialForm');
         const credentialIdInput = document.getElementById('credentialId');
         const siteNameInput = document.getElementById('siteName');
+        const urlInput = document.getElementById('urlInput');
         const usernameInput = document.getElementById('username');
         const passwordInput = document.getElementById('password');
         const generateBtn = document.getElementById('generateBtn');
         const cancelBtn = document.getElementById('cancelBtn');
+        const changeKeyBtn = document.getElementById('changeKeyBtn');
+        const resetVaultBtn = document.getElementById('resetVaultBtn');
 
         // New Strength Meter Elements
         const strengthBar = document.getElementById('strengthBar');
         const strengthText = document.getElementById('strengthText');
+
+        // New Toggle Visibility Elements
+        const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+        const eyeIcon = document.getElementById('eyeIcon');
+        
+        // Master Key Toggle Elements
+        const toggleMasterKeyBtn = document.getElementById('toggleMasterKeyBtn');
+        const masterKeyEyeIcon = document.getElementById('masterKeyEyeIcon');
+        
+        // Change Key Modal Elements
+        const changeKeyModal = document.getElementById('changeKeyModal');
+        const changeKeyForm = document.getElementById('changeKeyForm');
+        const currentMasterKeyInput = document.getElementById('currentMasterKey');
+        const newMasterKeyInput = document.getElementById('newMasterKey');
+        const confirmNewMasterKeyInput = document.getElementById('confirmNewMasterKey');
+        const changeKeyMessage = document.getElementById('changeKeyMessage');
+        const cancelChangeKeyBtn = document.getElementById('cancelChangeKeyBtn');
+
+        // Reset Vault Modal Elements
+        const resetVaultModal = document.getElementById('resetVaultModal');
+        const confirmResetBtn = document.getElementById('confirmResetBtn');
+        const cancelResetBtn = document.getElementById('cancelResetBtn');
 
 
         // --- UTILITY FUNCTIONS (Messaging, Encryption/Decryption) ---
@@ -205,7 +375,6 @@
         /**
          * Simple Base64 encoding/decoding for obfuscation.
          * NOTE: This is NOT secure encryption. It's for data obfuscation only.
-         * A real password manager must use strong cryptography.
          */
         const obfuscate = (text) => btoa(text);
         const deobfuscate = (base64) => {
@@ -218,14 +387,11 @@
         };
 
         const encryptData = (data, key) => {
-            // In a real app, this would be key-based AES encryption.
-            // Here, we just obfuscate the JSON string.
             const dataString = JSON.stringify(data);
             return obfuscate(dataString);
         };
 
         const decryptData = (encryptedData, key) => {
-            // In a real app, this would be key-based AES decryption.
             const dataString = deobfuscate(encryptedData);
             if (!dataString) return null;
             try {
@@ -253,7 +419,6 @@
             if (password.length >= 12) score += 10;
             if (password.length >= 16) score += 10;
             
-            // Checks for different character types
             const checks = {
                 hasLowercase: /[a-z]/.test(password),
                 hasUppercase: /[A-Z]/.test(password),
@@ -262,9 +427,8 @@
             };
 
             const satisfiedChecks = Object.values(checks).filter(Boolean).length;
-            score += satisfiedChecks * 15; // Max 60 points from type checks
+            score += satisfiedChecks * 15;
 
-            // Cap the score at 100
             score = Math.min(score, 100);
 
             let strength = 'Weak';
@@ -278,7 +442,7 @@
                 color = 'bg-yellow-500';
             } else if (score > 40) {
                 strength = 'Fair';
-                color = 'bg-orange-500';
+                color = 'bg-yellow-500'; 
             }
             
             return { score, strength, color };
@@ -298,7 +462,14 @@
             strengthBar.style.width = `${score}%`;
             strengthBar.className = `h-1 rounded-full transition-all duration-300 ${color}`;
             strengthText.textContent = `Strength: ${strength}`;
-            strengthText.style.color = color;
+            
+            if (score > 80) {
+                strengthText.style.color = '#10b981'; // Green
+            } else if (score > 60) {
+                strengthText.style.color = '#f59e0b'; // Yellow
+            } else {
+                strengthText.style.color = '#ef4444'; // Red
+            }
         };
 
         // --- DATA MANAGEMENT ---
@@ -308,19 +479,17 @@
             if (encryptedData) {
                 const decrypted = decryptData(encryptedData, currentMasterKey);
                 
-                // --- ADDED VALIDATION CHECK ---
                 if (Array.isArray(decrypted)) {
                     credentials = decrypted;
                     return true;
                 } else if (decrypted !== null) {
                     console.error("Stored credentials found but format is invalid. Clearing corrupted data.");
-                    localStorage.removeItem(CREDENTIALS_STORAGE_KEY); // Clear corrupt data
+                    localStorage.removeItem(CREDENTIALS_STORAGE_KEY);
                     showMessage("Vault data was corrupted. Corrupted data cleared. Please add new credentials.", 'error');
                 }
-                // -----------------------------
             }
             credentials = [];
-            return true; // No data found or decryption failed, but proceed with empty list
+            return true;
         };
 
         const saveCredentials = () => {
@@ -334,27 +503,22 @@
         const copyToClipboard = (text, element) => {
             const originalText = element.textContent;
 
-            // Function to handle the success state visually
             const handleSuccess = () => {
                 element.textContent = 'Copied!';
-                
-                // Temporarily change button appearance
                 element.classList.remove('bg-green-500', 'hover:bg-green-600');
                 element.classList.add('bg-indigo-500');
 
                 setTimeout(() => {
                     element.textContent = originalText;
-                    // Restore button appearance
                     element.classList.remove('bg-indigo-500');
                     element.classList.add('bg-green-500', 'hover:bg-green-600');
                 }, 1500);
             };
 
-            // Fallback function using document.execCommand('copy')
             function tryExecCommand(textToCopy) {
                 const textarea = document.createElement('textarea');
                 textarea.value = textToCopy;
-                textarea.style.position = 'fixed'; // Prevents scrolling to bottom
+                textarea.style.position = 'fixed'; 
                 textarea.style.left = '-9999px';
                 document.body.appendChild(textarea);
                 textarea.select();
@@ -367,28 +531,25 @@
                         throw new Error("execCommand failed.");
                     }
                 } catch (err) {
-                    console.error('Could not copy text using execCommand:', err);
+                    console.error('Could not copy text using execCommand (Fallback failed):', err);
                     showMessage('Copy failed. Manual copying required.', 'error');
                 } finally {
                     document.body.removeChild(textarea);
                 }
             }
             
-            // 1. Try modern API (navigator.clipboard)
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(() => {
                     handleSuccess();
                 }).catch(err => {
                     console.error('Modern copy API failed. Trying fallback:', err);
-                    // Fallback execution after failure
                     tryExecCommand(text);
                 });
             } else {
-                // 2. If modern API is not available at all, jump straight to fallback
                 tryExecCommand(text);
             }
         };
-        
+
         const copyPassword = (id, button) => {
             const credential = credentials.find(c => c.id === id);
             
@@ -404,7 +565,6 @@
                 return;
             }
             
-            // Use the existing copyToClipboard utility
             copyToClipboard(decryptedPass, button);
         };
 
@@ -414,9 +574,21 @@
             item.className = 'credential-item flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-gray-700 hover:bg-gray-600 rounded-xl shadow-lg transition-all-200';
             item.dataset.id = credential.id;
 
+            // Create the Site Name/Link element
+            let siteNameDisplay;
+            if (credential.url) {
+                // Site Name is clickable if URL exists
+                const safeUrl = credential.url.startsWith('http') ? credential.url : `https://${credential.url}`;
+                siteNameDisplay = `<a href="${safeUrl}" target="_blank" class="text-lg font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">${credential.siteName}</a>`;
+            } else {
+                // Site Name is just text if no URL
+                siteNameDisplay = `<h3 class="text-lg font-semibold text-white truncate">${credential.siteName}</h3>`;
+            }
+
+
             item.innerHTML = `
                 <div class="flex flex-col mb-3 sm:mb-0 w-full sm:w-3/5">
-                    <h3 class="text-lg font-semibold text-white truncate">${credential.siteName}</h3>
+                    ${siteNameDisplay}
                     <p class="text-sm text-gray-300 truncate">User: ${credential.username}</p>
                 </div>
                 <div class="flex flex-wrap gap-2 w-full sm:w-2/5 sm:justify-end">
@@ -452,11 +624,9 @@
                 .sort((a, b) => a.siteName.localeCompare(b.siteName));
 
             if (filteredCredentials.length === 0 && credentials.length > 0) {
-                // Showing search results empty state
                 passwordList.innerHTML = `<p class="text-center text-gray-400 p-10">No results found for "${filter}".</p>`;
                 emptyState.classList.add('hidden');
             } else if (credentials.length === 0) {
-                // Showing initial empty state
                 emptyState.classList.remove('hidden');
             } else {
                 emptyState.classList.add('hidden');
@@ -472,15 +642,21 @@
             isEditing = edit;
             currentEditId = id;
             credentialForm.reset();
-            passwordInput.type = 'text'; // Keep as text for easy input/editing
+            
+            // Set input type to password on open to ensure it is hidden first
+            passwordInput.type = 'password'; 
+            
+            // Set eye icon to hidden state (Closed Slit)
+            eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12h20M12 12v.01M6 12a6 6 0 0 1 12 0"/>`;
+
 
             if (edit && id !== null) {
                 const credential = credentials.find(c => c.id === id);
                 if (credential) {
                     modalTitle.textContent = 'Edit Credential';
                     siteNameInput.value = credential.siteName;
+                    urlInput.value = credential.url || '';
                     usernameInput.value = credential.username;
-                    // Deobfuscate password for editing
                     passwordInput.value = deobfuscate(credential.password);
                     credentialIdInput.value = id;
                 }
@@ -488,7 +664,6 @@
                 modalTitle.textContent = 'Add New Credential';
             }
             
-            // Initialize or update strength meter on modal open
             updateStrengthMeter();
 
             credentialModal.classList.remove('hidden');
@@ -501,11 +676,36 @@
             credentialModal.classList.add('hidden');
         };
 
+        // --- TOGGLE PASSWORD VISIBILITY (Credential Input) ---
+        const togglePasswordVisibility = () => {
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                // Change icon to 'eye' (visible) - NO CROSS
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8Z" /><circle cx="12" cy="12" r="3"></circle>`;
+            } else {
+                passwordInput.type = 'password';
+                // Change icon to 'eye-off' (hidden) - CLOSED SLIT
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12h20M12 12v.01M6 12a6 6 0 0 1 12 0"/>`;
+            }
+        };
+
+        // --- TOGGLE MASTER KEY VISIBILITY ---
+        const toggleMasterKeyVisibility = () => {
+            if (masterKeyInput.type === 'password') {
+                masterKeyInput.type = 'text';
+                // Change icon to 'eye' (visible) - NO CROSS
+                masterKeyEyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8Z" /><circle cx="12" cy="12" r="3"></circle>`;
+            } else {
+                masterKeyInput.type = 'password';
+                // Change icon to 'eye-off' (hidden) - CLOSED SLIT
+                masterKeyEyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12h20M12 12v.01M6 12a6 6 0 0 1 12 0"/>`;
+            }
+        };
+
+
         // --- CRUD OPERATIONS ---
 
         const deleteCredential = (id) => {
-            // NOTE: Removed confirm() to comply with environment constraints.
-            // Data is deleted immediately.
             credentials = credentials.filter(c => c.id !== id);
             saveCredentials();
             showMessage('Credential deleted successfully!', 'error'); 
@@ -515,31 +715,31 @@
             e.preventDefault();
 
             const siteName = siteNameInput.value.trim();
+            const url = urlInput.value.trim();
             const username = usernameInput.value.trim();
             const password = passwordInput.value;
 
             if (!siteName || !username || !password) return;
 
-            // Obfuscate the password before saving
             const encryptedPassword = obfuscate(password);
 
             if (isEditing) {
-                // Update
                 const index = credentials.findIndex(c => c.id === currentEditId);
                 if (index !== -1) {
                     credentials[index] = {
                         ...credentials[index],
                         siteName,
+                        url,
                         username,
                         password: encryptedPassword
                     };
                     showMessage('Credential updated!', 'success');
                 }
             } else {
-                // Create
                 const newCredential = {
                     id: Date.now().toString(),
                     siteName,
+                    url,
                     username,
                     password: encryptedPassword
                 };
@@ -560,45 +760,129 @@
             const inputHash = simpleHash(key).toString();
 
             if (!storedKeyHash) {
-                // First-time setup: Store the hash explicitly as a string
                 localStorage.setItem(MASTER_KEY_STORAGE_KEY, inputHash);
                 return true;
             }
 
-            // --- DEBUGGING LOG ADDED HERE ---
             if (inputHash !== storedKeyHash) {
                 console.error(`Login failed. Stored hash: ${storedKeyHash} | Input hash: ${inputHash}`);
             }
-            // --------------------------------
 
             return inputHash === storedKeyHash;
         };
 
         const authenticate = () => {
-            // Hide everything initially
             loginScreen.classList.add('hidden');
             appScreen.classList.add('hidden');
+            changeKeyModal.classList.add('hidden');
+            resetVaultModal.classList.add('hidden');
 
             if (!currentMasterKey) {
-                // Show login screen if not authenticated
                 loginScreen.classList.remove('hidden');
                 masterKeyInput.focus();
                 return;
             }
 
-            // Authenticated: Load data and show app
             if (loadCredentials()) {
                 loginScreen.classList.add('hidden');
                 appScreen.classList.remove('hidden');
                 renderCredentials();
             } else {
-                // Should only happen if the key is correct but data is corrupt.
-                // Replaced alert() with showMessage()
                 showMessage("Error decrypting data. Please log in again.", 'error');
                 currentMasterKey = '';
                 authenticate();
             }
         };
+
+        // --- MASTER KEY CHANGE LOGIC ---
+
+        const openChangeKeyModal = () => {
+            changeKeyForm.reset();
+            changeKeyMessage.classList.add('hidden');
+            changeKeyModal.classList.remove('hidden');
+            changeKeyModal.classList.add('flex');
+            currentMasterKeyInput.focus();
+        };
+
+        const closeChangeKeyModal = () => {
+            changeKeyModal.classList.add('hidden');
+        };
+
+        changeKeyForm.onsubmit = (e) => {
+            e.preventDefault();
+            changeKeyMessage.classList.add('hidden');
+            
+            const currentKey = currentMasterKeyInput.value.trim();
+            const newKey = newMasterKeyInput.value.trim();
+            const confirmKey = confirmNewMasterKeyInput.value.trim();
+
+            if (!currentKey || !newKey || !confirmKey) {
+                changeKeyMessage.textContent = 'All fields are required.';
+                changeKeyMessage.classList.remove('hidden');
+                return;
+            }
+            
+            if (newKey !== confirmKey) {
+                changeKeyMessage.textContent = 'New keys do not match.';
+                changeKeyMessage.classList.remove('hidden');
+                return;
+            }
+
+            if (!checkMasterKey(currentKey)) {
+                changeKeyMessage.textContent = 'Current Master Key is incorrect.';
+                changeKeyMessage.classList.remove('hidden');
+                return;
+            }
+
+            if (currentKey === newKey) {
+                changeKeyMessage.textContent = 'New key must be different from the current key.';
+                changeKeyMessage.classList.remove('hidden');
+                return;
+            }
+
+            // Since the current key is correct, we proceed with re-encryption
+            const oldKey = currentMasterKey;
+            const newHash = simpleHash(newKey).toString();
+
+            // 1. Re-encrypt all credentials using the new key
+            const reEncryptedCredentials = credentials.map(c => ({
+                ...c,
+                password: encryptData(deobfuscate(c.password), newKey)
+            }));
+
+            credentials = reEncryptedCredentials;
+            currentMasterKey = newKey; // Update current running key
+
+            // 2. Save the newly hashed master key and re-encrypted data
+            localStorage.setItem(MASTER_KEY_STORAGE_KEY, newHash);
+            saveCredentials(); 
+
+            closeChangeKeyModal();
+            showMessage('Master Key changed successfully!', 'success');
+        };
+
+
+        // --- RESET VAULT LOGIC (Forgot Key) ---
+
+        const openResetVaultModal = () => {
+            resetVaultModal.classList.remove('hidden');
+            resetVaultModal.classList.add('flex');
+        };
+
+        const closeResetVaultModal = () => {
+            resetVaultModal.classList.add('hidden');
+        };
+
+        const resetVault = () => {
+            localStorage.removeItem(MASTER_KEY_STORAGE_KEY);
+            localStorage.removeItem(CREDENTIALS_STORAGE_KEY);
+            
+            closeResetVaultModal();
+            currentMasterKey = '';
+            showMessage('Vault has been reset. Please set a new Master Key.', 'error');
+            authenticate();
+        };
+
 
         // --- EVENT LISTENERS ---
 
@@ -607,20 +891,20 @@
             const key = masterKeyInput.value.trim();
 
             if (checkMasterKey(key)) {
-                currentMasterKey = key; // Keep key in memory for decryption/encryption
+                currentMasterKey = key;
                 loginMessage.classList.add('hidden');
                 masterKeyInput.value = '';
                 authenticate();
             } else {
+                loginMessage.textContent = 'Incorrect Master Key. Try again.';
                 loginMessage.classList.remove('hidden');
-                // Clear and re-focus on failure
                 masterKeyInput.value = '';
                 masterKeyInput.focus();
             }
         };
 
         logoutBtn.onclick = () => {
-            currentMasterKey = ''; // Clear key from memory
+            currentMasterKey = '';
             masterKeyInput.value = '';
             authenticate();
         };
@@ -630,23 +914,30 @@
 
         generateBtn.onclick = () => {
             passwordInput.value = generatePassword();
-            updateStrengthMeter(); // Update meter immediately after generation
+            updateStrengthMeter();
         };
 
-        // New: Update strength meter as user types
         passwordInput.oninput = updateStrengthMeter;
+        togglePasswordBtn.onclick = togglePasswordVisibility; // Credential password toggle
 
+        toggleMasterKeyBtn.onclick = toggleMasterKeyVisibility; // Master Key password toggle
 
         searchInput.oninput = (e) => {
             renderCredentials(e.target.value);
         };
 
-        // Close modal when clicking outside (on the overlay)
         credentialModal.addEventListener('click', (e) => {
             if (e.target.id === 'credentialModal') {
                 closeModal();
             }
         });
+
+        // Master Key Management Listeners
+        changeKeyBtn.onclick = openChangeKeyModal;
+        cancelChangeKeyBtn.onclick = closeChangeKeyModal;
+        resetVaultBtn.onclick = openResetVaultModal;
+        cancelResetBtn.onclick = closeResetVaultModal;
+        confirmResetBtn.onclick = resetVault;
 
         // Initialize the app state
         authenticate();
